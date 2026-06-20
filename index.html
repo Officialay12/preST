@@ -1302,6 +1302,339 @@
 
     })();
 </script>
+
+    <!-- ── SIGN OUT BUTTON ── -->
+<!-- Add this inside .hdr-right in your header -->
+<button class="icon-btn" id="signout-btn" onclick="handleSignOut()" title="Sign Out" aria-label="Sign Out" style="display:none">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+</button>
+
+<style>
+    /* ── SIGN OUT BUTTON ── */
+    #signout-btn {
+        color: #fb7185;
+        transition: all 0.3s ease;
+    }
+
+    #signout-btn:hover {
+        color: #f43f5e;
+        background: rgba(251, 113, 133, 0.08);
+        transform: scale(1.05);
+    }
+
+    #signout-btn:active {
+        transform: scale(0.95);
+    }
+
+    /* ── TOAST FOR SIGN OUT ── */
+    .toast-signout {
+        border-left: 3px solid #fb7185;
+    }
+
+    /* ── SIGN OUT CONFIRM MODAL ── */
+    .signout-modal-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        background: rgba(8, 12, 24, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        animation: fadeIn 0.3s ease;
+    }
+    .signout-modal-overlay.hidden {
+        display: none;
+    }
+    .signout-modal {
+        background: #1a1a26;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 28px;
+        padding: 2.5rem;
+        max-width: 400px;
+        width: 100%;
+        text-align: center;
+        box-shadow: 0 24px 96px rgba(0, 0, 0, 0.7);
+        animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .signout-modal .modal-icon {
+        font-size: 3rem;
+        margin-bottom: 0.75rem;
+    }
+    .signout-modal h2 {
+        font-family: 'Syne', sans-serif;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+        color: #f0f0f5;
+    }
+    .signout-modal p {
+        color: #b0b0c0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        margin-bottom: 1.5rem;
+    }
+    .signout-modal .modal-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .signout-modal .modal-actions .btn-full {
+        width: 100%;
+    }
+    .signout-modal .btn-danger {
+        background: linear-gradient(135deg, #fb7185 0%, #f43f5e 100%);
+        color: #fff;
+        padding: 0.75rem 1.75rem;
+        border: none;
+        border-radius: 12px;
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 700;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 20px rgba(251, 113, 133, 0.35);
+    }
+    .signout-modal .btn-danger:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(251, 113, 133, 0.5);
+    }
+    .signout-modal .btn-danger:active {
+        transform: scale(0.97);
+    }
+    .signout-modal .btn-ghost {
+        background: transparent;
+        color: #b0b0c0;
+        padding: 0.75rem 1.75rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 12px;
+        font-family: 'DM Sans', sans-serif;
+        font-weight: 600;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .signout-modal .btn-ghost:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #f0f0f5;
+    }
+</style>
+
+<script>
+    // ─── SIGN OUT ── COMPLETE ──
+    (function() {
+        'use strict';
+
+        // ─── SHOW/HIDE SIGN OUT BUTTON ──
+        window.showSignOutButton = function() {
+            const btn = document.getElementById('signout-btn');
+            if (btn) btn.style.display = 'flex';
+        };
+
+        window.hideSignOutButton = function() {
+            const btn = document.getElementById('signout-btn');
+            if (btn) btn.style.display = 'none';
+        };
+
+        // ─── SIGN OUT MODAL ──
+        function showSignOutModal() {
+            // Remove any existing modal
+            const existing = document.querySelector('.signout-modal-overlay');
+            if (existing) existing.remove();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'signout-modal-overlay';
+            overlay.id = 'signout-modal';
+            overlay.innerHTML = `
+                <div class="signout-modal">
+                    <div class="modal-icon">🚪</div>
+                    <h2>Sign Out</h2>
+                    <p>Are you sure you want to sign out?<br><span style="font-size:0.8rem;color:#64748b;">Any unsaved exam progress will be lost.</span></p>
+                    <div class="modal-actions">
+                        <button class="btn-danger btn-full" id="signout-confirm-btn">Yes, Sign Out</button>
+                        <button class="btn-ghost btn-full" id="signout-cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+
+            // Handle confirm
+            document.getElementById('signout-confirm-btn').addEventListener('click', () => {
+                document.getElementById('signout-modal').remove();
+                window.handleSignOut();
+            });
+
+            // Handle cancel
+            document.getElementById('signout-cancel-btn').addEventListener('click', () => {
+                document.getElementById('signout-modal').remove();
+            });
+
+            // Click outside to close
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                }
+            });
+
+            // Escape key to close
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    const modal = document.getElementById('signout-modal');
+                    if (modal) modal.remove();
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+
+        // ─── HANDLE SIGN OUT ──
+        window.handleSignOut = async function() {
+            try {
+                const signOutBtn = document.getElementById('signout-btn');
+                if (signOutBtn) {
+                    signOutBtn.style.opacity = '0.5';
+                    signOutBtn.style.pointerEvents = 'none';
+                }
+
+                // 1. Save any active exam session
+                if (APP.session && APP.session.submitted === false) {
+                    APP.session._tabSwitches = APP.tabSwitches || 0;
+                    await db.sessions.put(APP.session);
+                }
+
+                // 2. Clear APP state
+                APP.session = null;
+                APP.student = null;
+                APP.currentQ = 0;
+                APP.tabSwitches = 0;
+                APP.reviewItems = [];
+                APP.studyMode = false;
+
+                // 3. Clear timers
+                if (APP.timerInt) {
+                    clearInterval(APP.timerInt);
+                    APP.timerInt = null;
+                }
+                if (APP._saveTimer) {
+                    clearTimeout(APP._saveTimer);
+                    APP._saveTimer = null;
+                }
+                if (APP._posSaveTimer) {
+                    clearTimeout(APP._posSaveTimer);
+                    APP._posSaveTimer = null;
+                }
+
+                // 4. Clear storage
+                localStorage.removeItem('prest_last_matric');
+                sessionStorage.removeItem('prest_install_dismissed');
+
+                // 5. Hide sign out button
+                window.hideSignOutButton();
+
+                // 6. Update header
+                window.updateHeaderAvatar(null);
+
+                // 7. Show toast
+                if (typeof toast === 'function') {
+                    toast('👋 Signed out successfully!', 'info');
+                } else {
+                    console.log('👋 Signed out successfully!');
+                }
+
+                // 8. Reset button state
+                if (signOutBtn) {
+                    signOutBtn.style.opacity = '1';
+                    signOutBtn.style.pointerEvents = 'auto';
+                }
+
+                // 9. Navigate to home
+                setTimeout(() => {
+                    window.navigate('home');
+                    const matricInput = document.getElementById('inp-matric');
+                    if (matricInput) matricInput.value = '';
+                    const nameInput = document.getElementById('inp-name');
+                    if (nameInput) nameInput.value = '';
+                    const errEl = document.getElementById('matric-err');
+                    if (errEl) errEl.classList.remove('show');
+                }, 400);
+
+            } catch (error) {
+                console.error('Sign out error:', error);
+                if (typeof toast === 'function') {
+                    toast('Error signing out. Please try again.', 'error');
+                }
+                const signOutBtn = document.getElementById('signout-btn');
+                if (signOutBtn) {
+                    signOutBtn.style.opacity = '1';
+                    signOutBtn.style.pointerEvents = 'auto';
+                }
+            }
+        };
+
+        // ─── EXTEND NAVIGATE ──
+        const originalNavigate = window.navigate;
+
+        window.navigate = function(page) {
+            if (originalNavigate) originalNavigate(page);
+
+            const signOutBtn = document.getElementById('signout-btn');
+            if (signOutBtn) {
+                if (page === 'home' || page === 'admin-login') {
+                    signOutBtn.style.display = 'none';
+                } else if (APP.student) {
+                    signOutBtn.style.display = 'flex';
+                }
+            }
+        };
+
+        // ─── KEYBOARD SHORTCUT ──
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'S' || e.key === 's')) {
+                e.preventDefault();
+                if (APP.student) {
+                    showSignOutModal();
+                }
+            }
+        });
+
+        // ─── UPDATE LOGIN FLOW ──
+        const originalHandleLogin = window.handleStudentLogin;
+
+        if (typeof window.handleStudentLogin === 'function') {
+            window.handleStudentLogin = async function() {
+                await originalHandleLogin.apply(this, arguments);
+                if (APP.student) {
+                    window.showSignOutButton();
+                }
+            };
+        }
+
+        // ─── UPDATE DASHBOARD LOAD ──
+        const originalLoadDashboard = window.loadDashboard;
+
+        if (typeof window.loadDashboard === 'function') {
+            window.loadDashboard = async function() {
+                if (!APP.student) {
+                    window.hideSignOutButton();
+                    if (originalLoadDashboard) return originalLoadDashboard.apply(this, arguments);
+                    return;
+                }
+                window.showSignOutButton();
+                if (originalLoadDashboard) return originalLoadDashboard.apply(this, arguments);
+            };
+        }
+
+        console.log('🔐 Sign out functionality loaded');
+        console.log('⌨️  Keyboard shortcut: Ctrl+Shift+S (or Cmd+Shift+S) to sign out');
+
+    })();
+</script>
     <!-- ── SCRIPTS ── -->
     <script src="script.js"></script>
 </body>
