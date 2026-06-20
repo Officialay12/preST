@@ -1,7 +1,3 @@
-// ═══════════════════════════════════════════════════════════════
-// COMPLETE JAVASCRIPT — preST v1.0
-// All bugs fixed, all recommendations implemented
-// ═══════════════════════════════════════════════════════════════
 
 "use strict";
 
