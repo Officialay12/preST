@@ -976,7 +976,6 @@
         from {
             opacity: 0;
         }
-
         to {
             opacity: 1;
         }
@@ -987,7 +986,6 @@
             opacity: 0;
             transform: scale(0.9);
         }
-
         to {
             opacity: 1;
             transform: scale(1);
@@ -996,7 +994,7 @@
 </style>
 
 <script>
-    // ─── INSTALL POPUP ──────────────────────────────────────────────
+    // ─── INSTALL POPUP ──
     let deferredPrompt = null;
     let installPopupShown = false;
 
@@ -1004,11 +1002,12 @@
         e.preventDefault();
         deferredPrompt = e;
         if (!installPopupShown && !sessionStorage.getItem('prest_install_dismissed')) {
+            // 🚀 INSTANT - 0ms delay
             setTimeout(() => {
                 const popup = document.getElementById('install-popup');
                 if (popup) popup.classList.remove('hidden');
                 installPopupShown = true;
-            }, 1500);
+            }, 0);
         }
     });
 
