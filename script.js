@@ -1,4 +1,3 @@
-
 "use strict";
 
 // ─── CONSTANTS ──────────────────────────────────────────────
@@ -17,6 +16,18 @@ const SAVE_INTERVAL_SECONDS = 15;
 const POSITION_SAVE_DELAY = 600;
 const MIN_MATRIC_LENGTH = 6;
 const MAX_MATRIC_LENGTH = 20;
+
+// ENHANCEMENT: admin dashboard auto-refresh interval
+const ADMIN_REFRESH_MS = 5000;
+
+// ENHANCEMENT: secret admin entry — change ADMIN_URL_TOKEN to your own
+// secret string before deploying. Reach admin via:
+//   https://yoursite.com/#admin-<ADMIN_URL_TOKEN>
+// Keep this private; treat it like a password component.
+const ADMIN_URL_TOKEN = "x7k2-scle-me";
+// Backup gesture: 7 rapid taps on the logo within 2.5s (instead of 2 taps).
+const ADMIN_TAP_COUNT = 7;
+const ADMIN_TAP_WINDOW_MS = 2500;
 
 const COURSES = [
   {
@@ -105,7 +116,6 @@ function handleError(error, context = "") {
   const severity = error.severity || "error";
   toast(message, severity);
 
-  // Attempt recovery for DB errors
   if (error.code === "DB_ERROR") {
     console.warn("Attempting DB recovery...");
     setTimeout(() => {
@@ -117,10 +127,16 @@ function handleError(error, context = "") {
 }
 
 // ─── VALIDATION ──────────────────────────────────────────────
+// ENHANCEMENT: strict matric number format — XXX/12/13/1234
+// 3 letters, slash, 2 digits, slash, 2 digits, slash, 4 digits.
+// Example placeholder shown to users: XXX/12/13/1234
+const MATRIC_REGEX = /^[A-Za-z]{3}\/\d{2}\/\d{2}\/\d{4}$/;
+const MATRIC_PLACEHOLDER = "XXX/12/13/1234";
+
 function validateMatric(matric) {
   if (!matric || typeof matric !== "string")
     return { valid: false, message: "Matric number is required" };
-  const cleaned = matric.trim();
+  const cleaned = matric.trim().toUpperCase();
   if (cleaned.length < MIN_MATRIC_LENGTH) {
     return {
       valid: false,
@@ -133,11 +149,53 @@ function validateMatric(matric) {
       message: `Matric number must be at most ${MAX_MATRIC_LENGTH} characters`,
     };
   }
-  if (!/^[A-Za-z0-9/]+$/.test(cleaned)) {
+  if (!MATRIC_REGEX.test(cleaned)) {
+    return {
+      valid: false,
+      message: `Matric number must follow the format ${MATRIC_PLACEHOLDER} (3 letters / 2 digits / 2 digits / 4 digits)`,
+    };
+  }
+  return { valid: true, value: cleaned };
+}
+
+// ENHANCEMENT: live formatting helper — auto-inserts slashes as the user types
+// and uppercases letters, so people don't have to remember to type them.
+function formatMatricInput(raw) {
+  let v = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const letters = v.slice(0, 3).replace(/[^A-Z]/g, "");
+  const rest = v.slice(3).replace(/[^0-9]/g, "");
+  const d1 = rest.slice(0, 2);
+  const d2 = rest.slice(2, 4);
+  const d3 = rest.slice(4, 8);
+  let out = letters;
+  if (d1) out += "/" + d1;
+  if (d2) out += "/" + d2;
+  if (d3) out += "/" + d3;
+  return out;
+}
+
+function validateFullName(name) {
+  if (!name) return { valid: true, value: "" }; // optional field
+  const cleaned = name.trim();
+  if (cleaned.length < 2) {
+    return { valid: false, message: "Full name is too short" };
+  }
+  if (cleaned.length > 60) {
+    return { valid: false, message: "Full name is too long" };
+  }
+  if (!/^[A-Za-z .'-]+$/.test(cleaned)) {
     return {
       valid: false,
       message:
-        "Matric number can only contain letters, numbers, and forward slash",
+        "Full name can only contain letters, spaces, apostrophes and hyphens",
+    };
+  }
+  // Require at least a first and last name
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+  if (parts.length < 2) {
+    return {
+      valid: false,
+      message: "Please enter your full name (first and last)",
     };
   }
   return { valid: true, value: cleaned };
@@ -148,13 +206,6 @@ function validateEmail(email) {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return { valid: re.test(email), message: "Invalid email format" };
 }
-
-// ─── FULL 500 QUESTION BANK ─────────────────────────────────
-// GST 112: indices 0-99
-// MTH 102: indices 100-199
-// PHY 102: indices 200-299
-// CHM 102: indices 300-399
-// COS 102: indices 400-499
 
 const QB = [
   /* ============================================================
@@ -4709,8 +4760,6 @@ const QB = [
 
 // ─── DATABASE ──────────────────────────────────────────────
 const db = new Dexie("preST_v4");
-// Bug 4: Added questionOverrides table
-// Bug 5: Added currentQ to sessions
 db.version(1).stores({
   students: "&matric, name, dept, level, avatar, createdAt",
   sessions:
@@ -4756,13 +4805,13 @@ const APP = {
   completedExams: 0,
   _overrideMap: {},
   _searchTimeout: null,
+  _adminRefreshInt: null, // ENHANCEMENT: real-time admin refresh handle
 };
 
 // ─── HELPERS ──────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const qs = (s, p = document) => p.querySelector(s);
 
-// Bug 2: HTML sanitization helper
 function escapeHTML(str) {
   if (str === null || str === undefined) return "";
   const div = document.createElement("div");
@@ -4811,7 +4860,6 @@ function togglePwd(id) {
   if (e) e.type = e.type === "password" ? "text" : "password";
 }
 
-// Bug 4: getQuestion helper that merges overrides
 async function getQuestion(idx) {
   try {
     const override = await db.questionOverrides.get(idx);
@@ -4833,7 +4881,6 @@ async function getQuestion(idx) {
   }
 }
 
-// Bug 4: Synchronous version for use in render loops where async isn't practical
 function getQuestionSync(idx) {
   try {
     const base = QB[idx];
@@ -4852,7 +4899,7 @@ function getQuestionSync(idx) {
   }
 }
 
-// Bug 3: SHA-256 hash function for admin password
+// SHA-256 hash function for admin password
 async function hashPassword(pw) {
   try {
     const enc = new TextEncoder().encode(pw);
@@ -4961,9 +5008,14 @@ function cycleTheme() {
 }
 
 // ─── NAVIGATE ──────────────────────────────────────────────
-// Bug 1: Fixed page switching with removeProperty
 function navigate(page) {
   try {
+    // ENHANCEMENT: stop the admin auto-refresh loop whenever we leave admin
+    if (page !== "admin" && APP._adminRefreshInt) {
+      clearInterval(APP._adminRefreshInt);
+      APP._adminRefreshInt = null;
+    }
+
     document.querySelectorAll(".page").forEach((p) => {
       p.classList.remove("active");
       p.style.removeProperty("display");
@@ -4994,10 +5046,10 @@ function navigate(page) {
         return;
       }
       loadAdminDashboard();
+      startAdminAutoRefresh(); // ENHANCEMENT: near-real-time admin view
     }
     if (page === "dashboard") loadDashboard();
 
-    // Accessibility: Move focus to main content
     const main = document.querySelector("main");
     if (main) {
       main.setAttribute("aria-live", "polite");
@@ -5016,7 +5068,15 @@ function navigate(page) {
 }
 window.navigate = navigate;
 
-// ─── LOGO CLICK ─────────────────────────────────────────────
+// ─── ADMIN ENTRY POINT ─────────────────────────────────────
+// SECURITY FIX: removed the old 2-tap logo gimmick that was both obvious
+// and (combined with the old login bug) an open door. Replaced with:
+//   1) A secret URL hash (#admin-<token>) that isn't linked anywhere in
+//      the UI, so casual users will never discover it by tapping around.
+//   2) A backup gesture of 7 rapid taps within 2.5s, purely as a fallback
+//      if you ever need to reach admin without typing the URL.
+// Neither of these is "real" security on its own — they only stop casual
+// discovery. The actual gate is the credential check in handleAdminLogin().
 function handleLogoClick() {
   try {
     if (APP.page === "exam") {
@@ -5024,21 +5084,41 @@ function handleLogoClick() {
       return;
     }
     const now = Date.now();
-    APP.logoTaps = APP.logoTaps.filter((t) => now - t < 900);
+    APP.logoTaps = APP.logoTaps.filter((t) => now - t < ADMIN_TAP_WINDOW_MS);
     APP.logoTaps.push(now);
-    if (APP.logoTaps.length >= 2) {
+    if (APP.logoTaps.length >= ADMIN_TAP_COUNT) {
       APP.logoTaps = [];
-      if (checkAdminSession()) {
-        navigate("admin");
-        return;
-      }
-      navigate("admin-login");
+      goToAdminEntry();
     }
   } catch (error) {
     handleError(error, "handleLogoClick");
   }
 }
 window.handleLogoClick = handleLogoClick;
+
+function goToAdminEntry() {
+  if (checkAdminSession()) {
+    navigate("admin");
+    return;
+  }
+  navigate("admin-login");
+}
+
+function checkAdminUrlHash() {
+  const hash = window.location.hash || "";
+  if (hash === `#admin-${ADMIN_URL_TOKEN}`) {
+    // Clear the hash immediately so it doesn't sit in browser history/screenshots
+    history.replaceState(
+      null,
+      "",
+      window.location.pathname + window.location.search,
+    );
+    goToAdminEntry();
+    return true;
+  }
+  return false;
+}
+window.addEventListener("hashchange", checkAdminUrlHash);
 
 // ─── ONLINE/OFFLINE ────────────────────────────────────────
 function updateOnlineStatus() {
@@ -5107,15 +5187,26 @@ function initSplash() {
 }
 
 // ─── AUTH — HOME ───────────────────────────────────────────
-// Bug 9: Fixed matric-err class toggling
-// Bug: Added input validation for matric numbers
+// ENHANCEMENT: live-formats the matric input as the user types (auto slashes,
+// uppercase), then strictly validates the final XXX/12/13/1234 format.
+// ENHANCEMENT: also validates full name when provided.
+function bindMatricInputFormatting() {
+  const inp = $("inp-matric");
+  if (!inp) return;
+  inp.setAttribute("placeholder", " ");
+  inp.setAttribute("maxlength", "14"); // XXX/12/13/1234 = 14 chars
+  inp.addEventListener("input", (e) => {
+    const formatted = formatMatricInput(e.target.value);
+    e.target.value = formatted;
+  });
+}
+
 async function handleStudentLogin() {
   try {
     const matricRaw = $("inp-matric").value;
-    const name = $("inp-name").value.trim();
+    const nameRaw = $("inp-name").value;
     const errEl = $("matric-err");
 
-    // Validate matric
     const validation = validateMatric(matricRaw);
     if (!validation.valid) {
       if (errEl) {
@@ -5124,9 +5215,19 @@ async function handleStudentLogin() {
       }
       return;
     }
+
+    const nameValidation = validateFullName(nameRaw.trim());
+    if (!nameValidation.valid) {
+      if (errEl) {
+        errEl.textContent = nameValidation.message;
+        errEl.classList.add("show");
+      }
+      return;
+    }
     if (errEl) errEl.classList.remove("show");
 
     const matric = validation.value;
+    const name = nameValidation.value;
 
     const btn = $("login-btn"),
       txt = $("login-btn-txt"),
@@ -5191,7 +5292,6 @@ async function loadDashboard() {
       h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
     const nameDisplay =
       s.name && s.name !== s.matric ? s.name.split(" ")[0] : s.matric;
-    // Bug 2: Escape nameDisplay
     $("dash-greeting").innerHTML =
       `${greet}, <span class="grad">${escapeHTML(nameDisplay)}</span> 👋`;
 
@@ -5310,7 +5410,6 @@ async function startCourse(courseIdx) {
 }
 window.startCourse = startCourse;
 
-// Bug 5 & 6: Fixed resumeExam to restore currentQ and tabSwitches
 async function resumeExam() {
   try {
     const s = APP.session;
@@ -5338,7 +5437,6 @@ async function dismissResume() {
 window.dismissResume = dismissResume;
 
 // ─── ANNOUNCEMENTS ─────────────────────────────────────────
-// Bug 2: Added escapeHTML to announcements
 async function loadHomeAnns() {
   try {
     const now = Date.now();
@@ -5384,7 +5482,6 @@ async function startExam(matric, courseIdx) {
     const rng = createRNG(seed);
     const sessionKey = `${matric}_c${courseIdx}`;
 
-    // Transaction-safe deletion
     await db.transaction("rw", db.sessions, async () => {
       await db.sessions.where("sessionKey").equals(sessionKey).delete();
     });
@@ -5431,7 +5528,6 @@ async function startExam(matric, courseIdx) {
       currentQ: 0,
     };
 
-    // Transaction-safe save
     await db.transaction("rw", db.sessions, async () => {
       await db.sessions.put(session);
     });
@@ -5467,8 +5563,6 @@ function initExamUI() {
   }
 }
 
-// Bug 4: Updated to use getQuestionSync for overrides
-// Bug 5: Added currentQ persistence
 function renderQuestion(idx) {
   try {
     APP.currentQ = idx;
@@ -5487,7 +5581,6 @@ function renderQuestion(idx) {
     const origIdx = s.shuffledQ[idx];
     const q = getQuestionSync(origIdx);
 
-    // Error boundary for question loading
     if (!q) {
       toast(`Question ${idx + 1} could not be loaded.`, "error");
       return;
@@ -5762,7 +5855,6 @@ function startTimer() {
         setTimeout(submitExam, 800);
       }
       updateTimerDisplay(remaining);
-      // Save every 15 seconds
       if (remaining % SAVE_INTERVAL_SECONDS === 0) {
         db.sessions.put(s).catch((error) => {
           handleError(error, "startTimer-save");
@@ -5772,7 +5864,6 @@ function startTimer() {
     APP.timerInt = setInterval(update, 1000);
     updateTimerDisplay(remaining);
 
-    // Save on visibility change for better persistence
     document.addEventListener("visibilitychange", () => {
       if (document.hidden && APP.session && !APP.session.submitted) {
         db.sessions.put(APP.session).catch((error) => {
@@ -5871,7 +5962,6 @@ function confirmSubmit() {
 }
 window.confirmSubmit = confirmSubmit;
 
-// Bug 4: Updated submitExam to use getQuestionSync for overrides
 async function submitExam() {
   try {
     closeModal("modal-submit");
@@ -5930,7 +6020,6 @@ async function submitExam() {
       tabSwitches: s._tabSwitches || 0,
     };
 
-    // Transaction-safe save
     await db.transaction("rw", [db.results, db.sessions], async () => {
       await db.results.put(result);
       await db.sessions.where("sessionKey").equals(s.sessionKey).delete();
@@ -5983,10 +6072,8 @@ async function checkAchievements(matric, result) {
       newAchievements.push("perfect_score");
     }
 
-    // Fixed streak logic: check for consecutive exams
     const sorted = allResults.sort((a, b) => b.date - a.date);
     if (sorted.length >= 3 && !list.includes("streak_3")) {
-      // Check if the last 3 exams are consecutive (within 24h of each other)
       const last3 = sorted.slice(0, 3);
       let isStreak = true;
       for (let i = 0; i < last3.length - 1; i++) {
@@ -6081,7 +6168,6 @@ function requestFullscreen() {
 }
 
 // ─── RESULTS PAGE ──────────────────────────────────────────
-// Bug 4: Updated renderResults to use getQuestionSync
 function renderResults(result, reviewData) {
   try {
     const total = APP.session ? APP.session.shuffledQ.length : 30;
@@ -6166,7 +6252,6 @@ function renderResults(result, reviewData) {
   }
 }
 
-// Bug 2: Added escapeHTML to review rendering
 function renderReviewList(reviewData, filter = "all") {
   try {
     const list = $("review-list");
@@ -6235,7 +6320,6 @@ function filterReview(type) {
 window.filterReview = filterReview;
 
 // ─── RESULT ACTIONS ────────────────────────────────────────
-// Bug 10: Fixed .last() query with explicit sorting
 async function generateCertificate() {
   try {
     const s = APP.session;
@@ -6352,7 +6436,6 @@ function retakeExam() {
 window.retakeExam = retakeExam;
 
 // ─── PROFILE ───────────────────────────────────────────────
-// Bug 2: Added escapeHTML to profile rendering
 async function loadProfilePage() {
   try {
     const s = APP.student;
@@ -6444,7 +6527,6 @@ async function saveProfile() {
 }
 window.saveProfile = saveProfile;
 
-// Bug 7: Fixed avatar upload with resizing and size limit
 function handleAvatarUpload(event) {
   try {
     const file = event.target.files[0];
@@ -6564,10 +6646,19 @@ async function exportResultsPDF() {
 window.exportResultsPDF = exportResultsPDF;
 
 // ─── ADMIN ──────────────────────────────────────────────────
-// Bug 3: Rewrote handleAdminLogin with password hashing and first-run setup
-// ⚠️ SECURITY NOTE: This client-side authentication is not a substitute for real server-side auth.
-// It only gates the in-browser admin UI for casual deterrence.
-// All data lives in the same browser's IndexedDB regardless of this login gate.
+// ⚠️ SECURITY NOTE: This client-side authentication is not a substitute for
+// real server-side auth. It only gates the in-browser admin UI for casual
+// deterrence. All data lives in the same browser's IndexedDB regardless of
+// this login gate. A determined attacker with dev-tools access can still
+// read the data directly. A backend (Track 2) is required for real security
+// and for syncing announcements/results across devices.
+//
+// SECURITY FIX (this version): the old code treated "no admin account yet"
+// as "let whoever is typing right now become the admin" — this meant any
+// random visitor who found the login form before you did would become the
+// permanent admin on that device. That self-provisioning path has been
+// removed entirely. An admin account can now ONLY be created by calling
+// setupAdminAccount(username, password) from the browser console yourself.
 async function handleAdminLogin() {
   try {
     const u = $("adm-user").value.trim();
@@ -6576,13 +6667,11 @@ async function handleAdminLogin() {
     const stored = await db.settings.get("adminAuth");
 
     if (!stored) {
-      // First-run: create admin account
-      const hash = await hashPassword(p);
-      await db.settings.put({ key: "adminAuth", value: { u, hash } });
-      APP.isAdmin = true;
-      sessionStorage.setItem("prest_admin", "1");
-      navigate("admin");
-      toast("Admin account created for this device.", "success");
+      if (err) {
+        err.textContent =
+          "❌ No admin account exists on this device yet. Run setup from the browser console first.";
+        err.classList.remove("hidden");
+      }
       return;
     }
 
@@ -6592,6 +6681,8 @@ async function handleAdminLogin() {
         err.textContent = "❌ Invalid credentials";
         err.classList.remove("hidden");
       }
+      // Small delay to slow down rapid-fire guesses from this form.
+      await new Promise((r) => setTimeout(r, 600));
       return;
     }
 
@@ -6606,25 +6697,62 @@ async function handleAdminLogin() {
 }
 window.handleAdminLogin = handleAdminLogin;
 
-// Bug 3: Reset admin password function
+// One-time setup — run this yourself from the browser console, once, per
+// device/browser you intend to administer from:
+//   await setupAdminAccount("yourUsername", "yourStrongPassword")
+// Refuses to run if an account already exists, so it can't be used by
+// anyone else to hijack admin later — they'd need an active admin session
+// to reset the password first (see resetAdminPassword below).
+async function setupAdminAccount(username, password) {
+  try {
+    const existing = await db.settings.get("adminAuth");
+    if (existing) {
+      console.warn(
+        "⚠️ An admin account already exists on this device. Sign in as admin and use the 'Reset Admin Password' button first if you need to change it.",
+      );
+      return false;
+    }
+    if (!username || !password || password.length < 8) {
+      console.warn(
+        "⚠️ Provide a username and a password of at least 8 characters.",
+      );
+      return false;
+    }
+    const hash = await hashPassword(password);
+    await db.settings.put({ key: "adminAuth", value: { u: username, hash } });
+    console.log(
+      "✅ Admin account created on this device. You can now log in via the admin login form.",
+    );
+    return true;
+  } catch (error) {
+    console.error("Setup failed:", error);
+    return false;
+  }
+}
+window.setupAdminAccount = setupAdminAccount;
+
+// Reset now requires an authenticated admin session — a stranger without
+// the password cannot reset their way into a fresh "first run" state.
 async function resetAdminPassword() {
   try {
+    if (!APP.isAdmin) {
+      toast("You must be signed in as admin to reset the password.", "error");
+      return;
+    }
     if (
       !confirm(
-        "⚠️ This will reset the admin password. All existing admin credentials will be invalidated.\n\nContinue?",
+        "⚠️ This will reset the admin password. You'll need to run setupAdminAccount() from the console again to set a new one.\n\nContinue?",
       )
     )
       return;
     await db.settings.delete("adminAuth");
     toast(
-      "🔑 Admin password has been reset. Re-enter credentials on next login.",
+      "🔑 Admin password has been reset. Create a new one via setupAdminAccount() in the console.",
       "info",
     );
-    if (APP.isAdmin) {
-      APP.isAdmin = false;
-      sessionStorage.removeItem("prest_admin");
-      navigate("home");
-    }
+    APP.isAdmin = false;
+    sessionStorage.removeItem("prest_admin");
+    navigate("home");
   } catch (error) {
     handleError(error, "resetAdminPassword");
     toast("Failed to reset admin password.", "error");
@@ -6643,10 +6771,32 @@ function checkAdminSession() {
 function adminLogout() {
   APP.isAdmin = false;
   sessionStorage.removeItem("prest_admin");
+  if (APP._adminRefreshInt) {
+    clearInterval(APP._adminRefreshInt);
+    APP._adminRefreshInt = null;
+  }
   navigate("home");
   toast("Signed out of admin", "info");
 }
 window.adminLogout = adminLogout;
+
+// ENHANCEMENT: near-real-time admin dashboard. Since this app has no
+// server, "real-time" means polling this browser's own IndexedDB on an
+// interval and re-rendering whatever tab is active — it reflects changes
+// made on THIS device only, not other students' devices (that requires
+// the backend in Track 2).
+function startAdminAutoRefresh() {
+  if (APP._adminRefreshInt) clearInterval(APP._adminRefreshInt);
+  APP._adminRefreshInt = setInterval(() => {
+    if (!APP.isAdmin || APP.page !== "admin") return;
+    const activePanel = document.querySelector(".admin-panel.active");
+    if (!activePanel) return;
+    const id = activePanel.id || "";
+    if (id === "atab-overview") loadAdminDashboard();
+    else if (id === "atab-students") loadStudentsTable();
+    else if (id === "atab-announcements") loadAdminAnns();
+  }, ADMIN_REFRESH_MS);
+}
 
 function switchAdminTab(tab) {
   try {
@@ -6844,7 +6994,6 @@ function renderAdminCharts(results) {
 }
 
 // ─── STUDENTS TABLE ────────────────────────────────────────
-// Bug 8: Fixed students table to show score/grade data with proper enrichment
 async function loadStudentsTable() {
   try {
     const students = await db.students.toArray();
@@ -6935,7 +7084,6 @@ function sortBy(col) {
 }
 window.sortBy = sortBy;
 
-// Bug 2: Added escapeHTML to viewStudent
 async function viewStudent(matric) {
   try {
     const s = await db.students.get(matric);
@@ -7036,7 +7184,6 @@ function exportCSV() {
 window.exportCSV = exportCSV;
 
 // ─── ADMIN ANNOUNCEMENTS ───────────────────────────────────
-// Bug 2: Added escapeHTML to admin announcements
 function showAnnForm(ann = null) {
   try {
     const wrap = $("ann-form-wrap");
@@ -7104,7 +7251,6 @@ async function saveAnn() {
 }
 window.saveAnn = saveAnn;
 
-// Bug 2: Added escapeHTML to admin announcements list
 async function loadAdminAnns() {
   try {
     const anns = await db.announcements.toArray();
@@ -7168,7 +7314,6 @@ async function deleteAnn(id) {
 window.deleteAnn = deleteAnn;
 
 // ─── ADMIN QUESTIONS ───────────────────────────────────────
-// Bug 4: Updated admin questions to load and use overrides
 async function loadAdminQuestions() {
   try {
     APP.qPage = 0;
@@ -7274,7 +7419,6 @@ function goQPage(p) {
 }
 window.goQPage = goQPage;
 
-// Bug 4: Rewrote editQuestion to persist to IndexedDB
 async function editQuestion(idx) {
   try {
     const base = QB[idx];
@@ -7483,14 +7627,17 @@ async function clearAllData() {
 window.clearAllData = clearAllData;
 
 // ─── INIT ──────────────────────────────────────────────────
-// Bug 1: Fixed init() race condition with proper async ordering
 function init() {
   try {
     applyTheme(APP.theme);
     initSplash();
     updateOnlineStatus();
     loadSettings();
+    bindMatricInputFormatting(); // ENHANCEMENT: live matric formatting
     navigate("home");
+
+    // ENHANCEMENT: check for secret admin URL hash on load too
+    checkAdminUrlHash();
 
     if (checkAdminSession()) {
       /* stay */
@@ -7556,7 +7703,7 @@ function init() {
       r.addEventListener("animationend", () => r.remove());
     });
 
-    console.log("🚀 preST v1.0 initialized successfully");
+    console.log("🚀 preST v1.1 initialized successfully");
   } catch (error) {
     console.error("Fatal initialization error:", error);
     toast("Failed to initialize application. Please refresh.", "error");
