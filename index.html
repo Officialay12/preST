@@ -808,6 +808,13 @@
             <span>⚡ Lightning Fast</span>
             <span>📱 Native Feel</span>
         </div>
+        <div id="install-steps" style="display:none; text-align:left; margin: 1rem 0; padding: 0.75rem 1rem; background: rgba(59,130,246,0.05); border-radius: 12px; border-left: 3px solid #3b82f6;">
+            <div style="font-size:0.9rem; color:#b0b0c0; line-height:1.8;">
+                <div>1. Tap the <strong>Share</strong> button <span style="font-size:1.2rem">⤴️</span> at the bottom</div>
+                <div>2. Scroll down and tap <strong>"Add to Home Screen"</strong></div>
+                <div>3. Tap <strong>"Add"</strong> in the top right corner</div>
+            </div>
+        </div>
         <div class="install-popup-actions">
             <button class="btn btn-primary btn-lg btn-full" id="install-btn">
                 📲 Install Now
@@ -851,6 +858,8 @@
         text-align: center;
         box-shadow: 0 24px 96px rgba(0, 0, 0, 0.7);
         animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        max-height: 90vh;
+        overflow-y: auto;
     }
 
     .install-popup-icon {
@@ -920,6 +929,10 @@
         box-shadow: 0 8px 32px rgba(59, 130, 246, 0.5);
     }
 
+    .btn-primary:active {
+        transform: scale(0.97);
+    }
+
     .btn-ghost {
         background: transparent;
         color: #b0b0c0;
@@ -936,6 +949,10 @@
     .btn-ghost:hover {
         background: rgba(255, 255, 255, 0.05);
         color: #f0f0f5;
+    }
+
+    .btn-ghost:active {
+        transform: scale(0.97);
     }
 
     .btn-lg {
@@ -991,72 +1008,299 @@
             transform: scale(1);
         }
     }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 480px) {
+        .install-popup-content {
+            padding: 1.5rem;
+            border-radius: 20px;
+        }
+        .install-popup-icon {
+            font-size: 3rem;
+        }
+        .install-popup-content h2 {
+            font-size: 1.25rem;
+        }
+        .install-popup-content p {
+            font-size: 0.85rem;
+        }
+        .btn-lg {
+            padding: 0.6rem 1.25rem;
+            font-size: 0.9rem;
+            min-height: 44px;
+        }
+    }
 </style>
 
 <script>
-    // ─── INSTALL POPUP ──
-    let deferredPrompt = null;
-    let installPopupShown = false;
+    // ─── INSTALL POPUP ── COMPLETE ──
+    (function() {
+        'use strict';
 
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        if (!installPopupShown && !sessionStorage.getItem('prest_install_dismissed')) {
-            // 🚀 INSTANT - 0ms delay
+        let deferredPrompt = null;
+        let installPopupShown = false;
+        let isAppInstalled = false;
+
+        // ─── DETECTION HELPERS ──
+        const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+        const isAndroid = () => /Android/.test(navigator.userAgent);
+
+        // ─── CHECK IF ALREADY INSTALLED ──
+        function checkIfInstalled() {
+            // Check 1: Standalone mode (PWA)
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                (window.navigator.standalone === true);
+
+            // Check 2: iOS standalone detection
+            const isIOSStandalone = window.navigator.standalone === true;
+
+            // Check 3: Beforeinstallprompt not fired (sometimes means already installed)
+            // Check 4: Session storage flag
+            const installedFlag = sessionStorage.getItem('prest_installed') === 'true';
+
+            if (isStandalone || isIOSStandalone || installedFlag) {
+                isAppInstalled = true;
+                return true;
+            }
+
+            return false;
+        }
+
+        // ─── TOAST SYSTEM ──
+        function showToast(message, type = 'info') {
+            const zone = document.getElementById('toast-zone');
+            if (!zone) return;
+
+            const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+            };
+
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.innerHTML = `
+                <span style="font-size:1.1rem;flex-shrink:0">${icons[type] || 'ℹ️'}</span>
+                <div class="toast-msg">${message}</div>
+            `;
+
+            zone.appendChild(el);
+
             setTimeout(() => {
-                const popup = document.getElementById('install-popup');
-                if (popup) popup.classList.remove('hidden');
-                installPopupShown = true;
-            }, 0);
-        }
-    });
-
-    document.addEventListener('DOMContentLoaded', () => {
-        const popup = document.getElementById('install-popup');
-        const installBtn = document.getElementById('install-btn');
-        const dismissBtn = document.getElementById('install-dismiss');
-        const closeBtn = document.getElementById('install-close');
-
-        if (window.matchMedia('(display-mode: standalone)').matches) {
-            if (popup) popup.classList.add('hidden');
-            return;
+                el.classList.add('out');
+                el.addEventListener('animationend', () => el.remove());
+            }, 3500);
         }
 
-        if (installBtn) {
-            installBtn.addEventListener('click', async () => {
-                if (deferredPrompt) {
-                    deferredPrompt.prompt();
-                    const result = await deferredPrompt.userChoice;
-                    if (result.outcome === 'accepted') {
-                        console.log('✅ preST installed!');
-                    }
-                    deferredPrompt = null;
-                    if (popup) popup.classList.add('hidden');
-                } else {
-                    alert('📱 Tap the install icon in your browser address bar.');
-                    if (popup) popup.classList.add('hidden');
+        // ─── UPDATE POPUP CONTENT ──
+        function updatePopupContent(isIOSDevice) {
+            const icon = document.querySelector('.install-popup-icon');
+            const title = document.querySelector('.install-popup-content h2');
+            const description = document.querySelector('.install-popup-content p');
+            const features = document.querySelector('.install-popup-features');
+            const steps = document.getElementById('install-steps');
+            const actionBtn = document.getElementById('install-btn');
+
+            if (isIOSDevice) {
+                // ── iOS CONTENT ──
+                if (icon) icon.textContent = '🍎';
+                if (title) title.textContent = 'Add preST to Your Home Screen';
+                if (description) {
+                    description.innerHTML = `Install preST on your iPhone for the best experience.`;
                 }
-            });
+                if (features) features.style.display = 'none';
+                if (steps) steps.style.display = 'block';
+                if (actionBtn) {
+                    actionBtn.textContent = "I've Added It ✓";
+                    actionBtn.style.background = 'linear-gradient(135deg, #34d399 0%, #059669 100%)';
+                    actionBtn.style.boxShadow = '0 4px 20px rgba(52, 211, 153, 0.35)';
+                }
+            } else {
+                // ── ANDROID/DESKTOP CONTENT ──
+                if (icon) icon.textContent = '🚀';
+                if (title) title.textContent = 'Install preST';
+                if (description) {
+                    description.textContent = 'Get the full experience with offline access, faster loading, and a native app feel.';
+                }
+                if (features) features.style.display = 'flex';
+                if (steps) steps.style.display = 'none';
+                if (actionBtn) {
+                    actionBtn.textContent = '📲 Install Now';
+                    actionBtn.style.background = 'linear-gradient(135deg, #1e3a5f 0%, #3b82f6 50%, #38bdf8 100%)';
+                    actionBtn.style.boxShadow = '0 4px 20px rgba(59, 130, 246, 0.35)';
+                }
+            }
         }
 
-        const hidePopup = () => {
+        // ─── HIDE POPUP ──
+        function hidePopup() {
+            const popup = document.getElementById('install-popup');
             if (popup) popup.classList.add('hidden');
-            sessionStorage.setItem('prest_install_dismissed', 'true');
-        };
-
-        if (dismissBtn) dismissBtn.addEventListener('click', hidePopup);
-        if (closeBtn) closeBtn.addEventListener('click', hidePopup);
-
-        if (sessionStorage.getItem('prest_install_dismissed') === 'true') {
-            if (popup) popup.classList.add('hidden');
-            installPopupShown = true;
         }
-    });
 
-    window.addEventListener('appinstalled', () => {
-        console.log('🎉 preST installed!');
-        document.getElementById('install-popup')?.classList.add('hidden');
-    });
+        // ─── SHOW POPUP ──
+        function showPopup() {
+            const popup = document.getElementById('install-popup');
+            if (popup) {
+                popup.classList.remove('hidden');
+                installPopupShown = true;
+            }
+        }
+
+        // ─── MAIN LOGIC ──
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+
+            // Check if already installed first
+            if (checkIfInstalled()) {
+                hidePopup();
+                return;
+            }
+
+            // Only show if not dismissed and not already shown
+            if (!installPopupShown && !sessionStorage.getItem('prest_install_dismissed')) {
+                // Check if it's iOS (this event doesn't fire on iOS, but just in case)
+                if (isIOS()) {
+                    updatePopupContent(true);
+                } else {
+                    updatePopupContent(false);
+                }
+                // Show instantly
+                setTimeout(showPopup, 0);
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const popup = document.getElementById('install-popup');
+            const installBtn = document.getElementById('install-btn');
+            const dismissBtn = document.getElementById('install-dismiss');
+            const closeBtn = document.getElementById('install-close');
+
+            // ─── CHECK IF ALREADY INSTALLED ──
+            if (checkIfInstalled()) {
+                if (popup) popup.classList.add('hidden');
+                return;
+            }
+
+            // ─── IOS: Show popup immediately with instructions ──
+            if (isIOS() && !sessionStorage.getItem('prest_install_dismissed')) {
+                setTimeout(() => {
+                    if (popup) {
+                        updatePopupContent(true);
+                        popup.classList.remove('hidden');
+                        installPopupShown = true;
+                    }
+                }, 300);
+            }
+
+            // ─── ANDROID/DESKTOP: Show if not dismissed ──
+            if (!isIOS() && !sessionStorage.getItem('prest_install_dismissed')) {
+                // If beforeinstallprompt didn't fire yet, show a small delay
+                setTimeout(() => {
+                    if (!installPopupShown && popup && !checkIfInstalled()) {
+                        updatePopupContent(false);
+                        popup.classList.remove('hidden');
+                        installPopupShown = true;
+                    }
+                }, 500);
+            }
+
+            // ─── INSTALL BUTTON ──
+            if (installBtn) {
+                installBtn.addEventListener('click', async () => {
+                    // iOS: User says they added it
+                    if (isIOS()) {
+                        // Check if it's actually installed now
+                        if (checkIfInstalled()) {
+                            hidePopup();
+                            showToast('🎉 preST is now on your home screen!', 'success');
+                        } else {
+                            // User might have added it, check again in 2 seconds
+                            showToast('📱 Checking if you added it...', 'info');
+                            setTimeout(() => {
+                                if (checkIfInstalled()) {
+                                    hidePopup();
+                                    showToast('🎉 preST is now on your home screen!', 'success');
+                                } else {
+                                    showToast('📱 Please follow the steps to add preST to your home screen.', 'warning');
+                                }
+                            }, 2000);
+                        }
+                        return;
+                    }
+
+                    // ── ANDROID/DESKTOP: Native install ──
+                    if (deferredPrompt) {
+                        try {
+                            deferredPrompt.prompt();
+                            const result = await deferredPrompt.userChoice;
+                            if (result.outcome === 'accepted') {
+                                console.log('✅ preST installed on Android/Desktop!');
+                                sessionStorage.setItem('prest_installed', 'true');
+                                isAppInstalled = true;
+                                hidePopup();
+                                showToast('🎉 preST installed successfully!', 'success');
+                            } else {
+                                console.log('❌ User declined installation');
+                            }
+                            deferredPrompt = null;
+                        } catch (error) {
+                            console.error('Install error:', error);
+                            showToast('⚠️ Something went wrong. Try again.', 'error');
+                        }
+                    } else {
+                        // Fallback: Show instructions
+                        showToast('📱 Tap the install icon in your browser address bar.', 'info');
+                        hidePopup();
+                    }
+                });
+            }
+
+            // ─── DISMISS / CLOSE ──
+            const dismissHandler = () => {
+                hidePopup();
+                sessionStorage.setItem('prest_install_dismissed', 'true');
+            };
+
+            if (dismissBtn) dismissBtn.addEventListener('click', dismissHandler);
+            if (closeBtn) closeBtn.addEventListener('click', dismissHandler);
+
+            // ─── RESTORE DISMISSED STATE ──
+            if (sessionStorage.getItem('prest_install_dismissed') === 'true') {
+                hidePopup();
+                installPopupShown = true;
+            }
+        });
+
+        // ─── APP INSTALLED EVENT ──
+        window.addEventListener('appinstalled', () => {
+            console.log('🎉 preST installed!');
+            sessionStorage.setItem('prest_installed', 'true');
+            isAppInstalled = true;
+            hidePopup();
+            showToast('🎉 Thank you for installing preST!', 'success');
+        });
+
+        // ─── PERIODIC CHECK FOR INSTALLATION ──
+        setInterval(() => {
+            if (!isAppInstalled && checkIfInstalled()) {
+                isAppInstalled = true;
+                hidePopup();
+                showToast('🎉 preST is installed!', 'success');
+            }
+        }, 5000);
+
+        // ─── EXPOSE TO GLOBAL ──
+        window.checkIfInstalled = checkIfInstalled;
+        window.hidePopup = hidePopup;
+        window.showPopup = showPopup;
+
+        console.log('📱 preST Install Popup loaded successfully');
+        console.log(`📱 iOS: ${isIOS()}, Android: ${isAndroid()}, Installed: ${isAppInstalled}`);
+
+    })();
 </script>
     <!-- ── SCRIPTS ── -->
     <script src="script.js"></script>
